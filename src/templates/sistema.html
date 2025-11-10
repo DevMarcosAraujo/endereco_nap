@@ -1,0 +1,299 @@
+
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>Sistema Claro - Busca de NAPs (leve)</title>
+    <link rel="stylesheet" href="styles.css">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <style>
+    .loading { color: var(--claro-gray); font-size: 14px; margin-top:8px; }
+    .search-controls { display: flex; gap: 10px; margin-bottom: 15px; }
+    .button { 
+        background: #DA291C; 
+        color: white; 
+        border: none; 
+        padding: 8px 12px; 
+        border-radius: 6px; 
+        cursor: pointer;
+    }
+    .button:hover { background: #b52116; }
+    .upload-section {
+        margin: 20px 0;
+        padding: 15px;
+        background: #f5f5f5;
+        border-radius: 8px;
+    }
+    .file-input {
+        display: block;
+        margin: 10px 0;
+    }
+    .search-input {
+        flex: 1;
+        min-width: 200px;
+    }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <div class="logo-container">
+                <img src="https://upload.wikimedia.org/wikipedia/commons/8/89/CLARO.png" alt="Logo Claro" class="logo">
+            </div>
+        </div>
+
+        <div class="main-layout">
+            <div class="left-panel">
+                <div class="search-box">
+                    <div class="search-controls">
+                    <input type="text" id="searchInput" class="search-input" placeholder="Digite para buscar..." autofocus>
+                    <button id="clearBtn" class="button">Limpar Busca</button>
+                </div>
+                <div class="upload-section">
+                    <h3>Carregar Nova Planilha</h3>
+                    <input type="file" id="fileInput" accept=".csv" class="file-input">
+                    <button id="uploadBtn" class="button">Enviar Planilha</button>
+                </div>
+                <div class="search-info">Digite para buscar nos registros</div>
+                <div id="resultInfo"></div>
+                <div id="loading" class="loading" style="display:none">Carregando dados...</div>
+                </div>
+
+                <div class="dashboard">
+                    <div class="stats-card">
+                        <h3>Total de NAPs</h3>
+                        <p class="stats-number">12</p>
+                    </div>
+                    <div class="stats-card">
+                        <h3>Conectados</h3>
+                        <p class="stats-number">0</p>
+                        <div class="progress-bar"><div class="progress" style="width: 0.0%"></div></div>
+                    </div>
+                    <div class="stats-card">
+                        <h3>Desconectados</h3>
+                        <p class="stats-number">0</p>
+                        <div class="progress-bar"><div class="progress" style="width: 0.0%"></div></div>
+                    </div>
+                    <div class="stats-card">
+                        <h3>Total de Endereços</h3>
+                        <p class="stats-number">58,576</p>
+                    </div>
+                </div>
+
+                <div class="charts-grid">
+                    <div class="chart-container">
+                        <h3>Distribuição de Status</h3>
+                        <div class="status-chart">
+
+                            <div class="status-bar">
+                                <div class="status-label">ATIVADO</div>
+                                <div class="status-bar-container">
+                                    <div class="status-bar-fill" style="width: 100.0%"></div>
+                                </div>
+                                <div class="status-value">100.0%</div>
+                            </div>
+    
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="right-panel">
+                <div class="table-container" id="resultsContainer" style="display:none">
+                    <table id="dataTable">
+                        <thead>
+                            <tr>
+                                <th>COD_NODE</th>
+                                <th>Status do Contrato</th>
+                                <th>Endereço Completo</th>
+                                <th>Contrato</th>
+                            </tr>
+                        </thead>
+                        <tbody id="dataBody">
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+    // Carrega JSON sob demanda e faz render dos resultados. Melhora a busca: procura por NAP e por endereço.
+    let dataByNap = null;
+    let allRecords = null;
+    const loadingEl = document.getElementById('loading');
+    const resultInfo = document.getElementById('resultInfo');
+    const resultsContainer = document.getElementById('resultsContainer');
+    const dataBody = document.getElementById('dataBody');
+
+    async function ensureDataLoaded(){
+        if(dataByNap) return;
+        loadingEl.style.display = 'block';
+        try{
+            const res = await fetch('data_by_nap.json');
+            dataByNap = await res.json();
+            // flatten records for free-text search
+            allRecords = [];
+            Object.values(dataByNap).forEach(arr => allRecords.push(...arr));
+            // popular datalist de NAPs para autocomplete
+            try{
+                const dl = document.getElementById('napList');
+                Object.keys(dataByNap).slice(0,10000).forEach(k => {
+                    const opt = document.createElement('option');
+                    opt.value = k;
+                    dl.appendChild(opt);
+                });
+            }catch(e){
+                console.warn('Erro ao popular datalist', e);
+            }
+        }catch(err){
+            console.error('Erro ao carregar data_by_nap.json', err);
+            resultInfo.textContent = 'Erro ao carregar dados.';
+            dataByNap = {};
+            allRecords = [];
+        }finally{
+            loadingEl.style.display = 'none';
+        }
+    }
+
+    function renderResults(matches){
+        dataBody.innerHTML = '';
+        if(!matches || matches.length === 0){
+            resultInfo.textContent = 'Nenhum resultado encontrado.';
+            resultsContainer.style.display = 'none';
+            return;
+        }
+
+        for(const r of matches){
+            const tr = document.createElement('tr');
+            tr.innerHTML = `<td>${r.COD_NODE || ''}</td><td class="selectable">${r.DSC_STATUS_CONTRATO || ''}</td><td>${r.DSC_ENDERECO_COMPLETO || ''}</td><td>${r.NUM_CONTRATO || ''}</td>`;
+            dataBody.appendChild(tr);
+        }
+        resultsContainer.style.display = '';
+        resultInfo.textContent = `${matches.length} resultado(s) encontrado(s)`;
+    }
+
+    document.getElementById('searchInput').addEventListener('input', async function(){
+        const q = this.value.trim().toLowerCase();
+        await ensureDataLoaded();
+
+        if(!q){
+            // mostra um resumo inicial: top 50 registros
+            const top = allRecords ? allRecords.slice(0,50) : [];
+            if(top.length===0){
+                dataBody.innerHTML = '';
+                resultsContainer.style.display = 'none';
+                resultInfo.textContent = '';
+            } else {
+                renderResults(top);
+            }
+            return;
+        }
+
+        // busca por NAP (chave) ou por conteúdo em ENDERECO/STATUS/SITUACAO
+        const matches = [];
+        // busca por chaves (quando dataset tem NAPs como keys)
+        for(const key of Object.keys(dataByNap)){
+            if(key.indexOf(q) !== -1){
+                matches.push(...dataByNap[key]);
+            }
+        }
+
+        // busca full-text em allRecords
+        if(allRecords){
+            for(const r of allRecords){
+                // concatena campos relevantes
+                const hay = (
+                    (r.COD_NODE || '') + ' ' + 
+                    (r.DSC_STATUS_CONTRATO || '') + ' ' + 
+                    (r.DSC_ENDERECO_COMPLETO || '') + ' ' + 
+                    (r.NUM_CONTRATO || '')
+                ).toLowerCase();
+                if(hay.indexOf(q) !== -1){
+                    matches.push(r);
+                }
+            }
+        }
+
+        // remove duplicados mantendo ordem
+        const seen = new Set();
+        const unique = [];
+        for(const m of matches){
+            const id = (m.NAP || '') + '|' + (m.ENDERECO || '') + '|' + (m.NUM_CONTRATO || '');
+            if(!seen.has(id)){
+                seen.add(id);
+                unique.push(m);
+            }
+        }
+
+        renderResults(unique);
+    });
+
+    // Debug button handler: faz fetch direto e reporta estatísticas rápidas
+    document.getElementById('debugFetchBtn').addEventListener('click', async function(){
+        const dbg = document.getElementById('debugInfo');
+        dbg.textContent = 'Teste em andamento...';
+        try{
+            const res = await fetch('data_by_nap.json');
+            if(!res.ok) throw new Error('Status ' + res.status);
+            const j = await res.json();
+            let totalKeys = Object.keys(j).length;
+            let totalRecords = 0;
+            for(const k of Object.keys(j)) totalRecords += (j[k] || []).length;
+            dbg.textContent = `OK — chaves NAP: ${totalKeys}, registros: ${totalRecords}`;
+        }catch(e){
+            dbg.textContent = 'Erro ao buscar JSON: ' + e.message;
+            resultInfo.textContent = 'Erro ao carregar dados. Veja debug.';
+            console.error(e);
+        }
+    });
+
+    // Botão de limpar busca
+    document.getElementById('clearBtn').addEventListener('click', function() {
+        document.getElementById('searchInput').value = '';
+        dataBody.innerHTML = '';
+        resultsContainer.style.display = 'none';
+        resultInfo.textContent = '';
+    });
+
+    // Upload de planilha
+    document.getElementById('uploadBtn').addEventListener('click', async function() {
+        const fileInput = document.getElementById('fileInput');
+        const file = fileInput.files[0];
+        
+        if (!file) {
+            alert('Por favor, selecione uma planilha CSV para enviar.');
+            return;
+        }
+
+        if (!file.name.toLowerCase().endsWith('.csv')) {
+            alert('Por favor, selecione um arquivo CSV válido.');
+            return;
+        }
+
+        const formData = new FormData();
+        formData.append('file', file);
+
+        try {
+            loadingEl.style.display = 'block';
+            const response = await fetch('/upload', {
+                method: 'POST',
+                body: formData
+            });
+
+            if (!response.ok) {
+                throw new Error('Erro ao enviar arquivo');
+            }
+
+            alert('Planilha enviada com sucesso! A página será recarregada.');
+            window.location.reload();
+        } catch (error) {
+            alert('Erro ao enviar planilha: ' + error.message);
+            console.error('Erro:', error);
+        } finally {
+            loadingEl.style.display = 'none';
+        }
+    });
+    </script>
+</body>
+</html>
